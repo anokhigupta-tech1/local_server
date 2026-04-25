@@ -1,62 +1,108 @@
-import mongoose from "mongoose";
+// controllers/user.controller.js
+import bcrypt from "bcryptjs";
 import { User } from "../models/User.js";
+import fs from "fs";
+import path from "path";
 
-export const updateProfile = async (req, res) => {
+export const updateUser = async (req, res) => {
   try {
-    const userId = req.user._id; // from auth middleware
-    const { googleMapLink } = req.body;
-    console.log(googleMapLink);
-    // Allowed fields only
-    const allowedFields = [
-      "name",
-      "phone",
-      "altPhone",
-      "address",
-      "dob",
-      "gMapUrl",
-    ];
+    const userId = req.user._id;
+    const updateData = { ...req.body };
 
-    const updates = {};
+    // Prevent restricted fields update
+    delete updateData.role;
+    delete updateData.status;
 
-    // Filter only allowed fields
-    Object.keys(req.body).forEach((key) => {
-      if (allowedFields.includes(key)) {
-        updates[key] = req.body[key];
-      }
-    });
+    // Get current user
+    const existingUser = await User.findById(userId);
 
-    // Handle image upload
-    if (req.file) {
-      updates.profilePicture = `/uploads/images/${req.file.filename}`;
-    }
-
-    // Prevent empty update
-    if (Object.keys(updates).length === 0) {
-      return res.status(400).json({
+    if (!existingUser) {
+      return res.status(404).json({
         success: false,
-        message: "No valid fields to update",
+        message: "User not found",
       });
     }
 
-    // Check duplicate phone
-    if (updates.phone) {
-      const existing = await User.findOne({
-        phone: updates.phone,
+    // =========================
+    // HANDLE PROFILE IMAGE
+    // =========================
+    if (req.file) {
+      updateData.profilePicture = req.file.path;
+
+      // Delete old image if exists
+      if (
+        existingUser.profilePicture &&
+        fs.existsSync(existingUser.profilePicture)
+      ) {
+        fs.unlinkSync(existingUser.profilePicture);
+      }
+    }
+
+    // =========================
+    // HANDLE PASSWORD HASHING
+    // =========================
+    if (updateData.password) {
+      const salt = await bcrypt.genSalt(10);
+      updateData.password = await bcrypt.hash(updateData.password, salt);
+    }
+
+    // =========================
+    // DUPLICATE EMAIL CHECK
+    // =========================
+    if (updateData.email && updateData.email !== existingUser.email) {
+      const emailExists = await User.findOne({
+        email: updateData.email,
         _id: { $ne: userId },
       });
 
-      if (existing) {
+      if (emailExists) {
         return res.status(400).json({
           success: false,
-          message: "Phone number already in use",
+          message: "Email already in use",
         });
       }
     }
 
-    // Update user
+    // =========================
+    // DUPLICATE PHONE CHECK
+    // =========================
+    if (updateData.phone && updateData.phone !== existingUser.phone) {
+      const phoneExists = await User.findOne({
+        phone: updateData.phone,
+        _id: { $ne: userId },
+      });
+
+      if (phoneExists) {
+        return res.status(400).json({
+          success: false,
+          message: "Phone already in use",
+        });
+      }
+    }
+
+    // =========================
+    // DUPLICATE ALT PHONE CHECK
+    // =========================
+    if (updateData.altPhone && updateData.altPhone !== existingUser.altPhone) {
+      const altPhoneExists = await User.findOne({
+        altPhone: updateData.altPhone,
+        _id: { $ne: userId },
+      });
+
+      if (altPhoneExists) {
+        return res.status(400).json({
+          success: false,
+          message: "Alt phone already in use",
+        });
+      }
+    }
+
+    // =========================
+    // UPDATE USER
+    // =========================
     const updatedUser = await User.findByIdAndUpdate(
       userId,
-      { ...updates, gMapUrl: googleMapLink },
+      { $set: updateData },
       {
         new: true,
         runValidators: true,
@@ -65,42 +111,41 @@ export const updateProfile = async (req, res) => {
 
     return res.status(200).json({
       success: true,
-      message: "Profile updated successfully",
+      message: "User updated successfully",
       data: updatedUser,
     });
   } catch (error) {
-    console.error("Update Profile Error:", error);
-
-    if (error instanceof mongoose.Error.ValidationError) {
-      return res.status(400).json({
-        success: false,
-        message: Object.values(error.errors)
-          .map((e) => e.message)
-          .join(", "),
-      });
-    }
+    console.error("Update User Error:", error);
 
     return res.status(500).json({
       success: false,
-      message: "Internal Server Error",
+      message: error.message || "Server Error",
     });
   }
 };
 
-// GET /api/user/profile
-export const getProfile = async (req, res) => {
+export const getMyProfile = async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select("-password");
-    // const bookings
+    const userId = req.user.id; // comes from auth middleware
+
+    const user = await User.findById(userId).select("-password");
+
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found",
+      });
+    }
 
     return res.status(200).json({
       success: true,
       data: user,
     });
   } catch (error) {
+    console.error("Get Profile Error:", error);
     return res.status(500).json({
       success: false,
-      message: "Failed to fetch profile",
+      message: "Server Error",
     });
   }
 };

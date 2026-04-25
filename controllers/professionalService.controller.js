@@ -73,7 +73,7 @@ export const getProfessionalProfile = asyncHandler(async (req, res) => {
   const professional = await Professional.findOne({
     user: req.user._id,
   })
-    .populate("user", "name email phone")
+    .populate("user", "name email phone profilePicture")
     .lean();
 
   if (!professional) {
@@ -318,7 +318,7 @@ export const deleteService = asyncHandler(async (req, res) => {
   // 3. (Optional but recommended) Authorization check
   // assuming req.user.id exists
   // professional
-  if (service.professional.toString() !== req.user._id.toString()) {
+  if (service.userId.toString() !== req.user._id.toString()) {
     throw new AppError(403, "You are not allowed to delete this service");
   }
 
