@@ -49,6 +49,6 @@ const professionalSchema = new mongoose.Schema(
 );
 
 professionalSchema.pre(/^find/, function (next) {
-  this.populate("user", "name email phone");
+  this.populate("user", "name email phone profilePicture");
 });
 export const Professional = mongoose.model("Professional", professionalSchema);
