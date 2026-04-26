@@ -681,3 +681,49 @@ export const updatePaymentStatus = async (req, res) => {
     });
   }
 };
+
+import crypto from "crypto";
+
+export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
+  const {
+    razorpay_order_id,
+    razorpay_payment_id,
+    razorpay_signature,
+    bookingId,
+  } = req.body;
+
+  const generated_signature = crypto
+    .createHmac("sha256", process.env.RAZORPAY_SECRET)
+    .update(razorpay_order_id + "|" + razorpay_payment_id)
+    .digest("hex");
+
+  if (generated_signature !== razorpay_signature) {
+    return res.status(400).json({
+      success: false,
+      message: "Payment verification failed ❌",
+    });
+  }
+
+  // ✅ Update booking after verification
+  const booking = await Booking.findById(bookingId);
+
+  if (!booking) {
+    return res.status(404).json({
+      success: false,
+      message: "Booking not found",
+    });
+  }
+
+  booking.paymentStatus = "paid";
+  booking.paymentId = razorpay_payment_id;
+  booking.status = "confirmed";
+  booking.paymentDate = new Date();
+
+  await booking.save();
+
+  return res.status(200).json({
+    success: true,
+    message: "Payment verified & booking confirmed ✅",
+    bookingId: booking._id,
+  });
+});
