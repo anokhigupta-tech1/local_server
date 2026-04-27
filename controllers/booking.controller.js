@@ -3,6 +3,7 @@ import { asyncHandler } from "../utils/asyncHandller.js";
 import { User } from "../models/User.js";
 import { Service } from "../models/service.model.js";
 import { Booking } from "../models/booking.model.js";
+import { Payment } from "../models/payment.model.js";
 import {
   sendBookingConfirmationEmail,
   sendProfessionalNotificationEmail,
@@ -383,6 +384,8 @@ export const getBookingById = asyncHandler(async (req, res) => {
 export const cancelBooking = asyncHandler(async (req, res) => {
   const { id } = req.params;
   const customerId = req.user._id;
+  console.log("Booking ID from params:", id);
+  console.log("User ID from token:", customerId);
 
   if (!mongoose.Types.ObjectId.isValid(id)) {
     return res.status(400).json({
@@ -395,7 +398,8 @@ export const cancelBooking = asyncHandler(async (req, res) => {
     _id: id,
     user: customerId,
   });
-
+  console.log("Booking ID from params:", id);
+  console.log("User ID from token:", customerId);
   if (!booking) {
     return res.status(404).json({
       success: false,
@@ -684,14 +688,120 @@ export const updatePaymentStatus = async (req, res) => {
 
 import crypto from "crypto";
 
+// export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
+//   const {
+//     razorpay_order_id,
+//     razorpay_payment_id,
+//     razorpay_signature,
+//     bookingId,
+//   } = req.body;
+
+//   const generated_signature = crypto
+//     .createHmac("sha256", process.env.RAZORPAY_SECRET)
+//     .update(razorpay_order_id + "|" + razorpay_payment_id)
+//     .digest("hex");
+
+//   if (generated_signature !== razorpay_signature) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Payment verification failed ❌",
+//     });
+//   }
+
+//   // ✅ Update booking after verification
+//   const booking = await Booking.findById(bookingId);
+
+//   if (!booking) {
+//     return res.status(404).json({
+//       success: false,
+//       message: "Booking not found",
+//     });
+//   }
+
+//   booking.paymentStatus = "paid";
+//   booking.paymentId = razorpay_payment_id;
+//   booking.status = "confirmed";
+//   booking.paymentDate = new Date();
+
+//   await booking.save();
+
+//   return res.status(200).json({
+//     success: true,
+//     message: "Payment verified & booking confirmed ✅",
+//     bookingId: booking._id,
+//   });
+// });
+
+// export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
+//   const {
+//     razorpay_order_id,
+//     razorpay_payment_id,
+//     razorpay_signature,
+//     bookingId,
+//     amount,
+//   } = req.body;
+
+//   // 🔐 Verify signature
+//   const generated_signature = crypto
+//     .createHmac("sha256", process.env.RAZORPAY_SECRET)
+//     .update(razorpay_order_id + "|" + razorpay_payment_id)
+//     .digest("hex");
+
+//   if (generated_signature !== razorpay_signature) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Payment verification failed ❌",
+//     });
+//   }
+
+//   // ✅ Check booking exists
+//   const booking = await Booking.findById(bookingId);
+//   if (!booking) {
+//     return res.status(404).json({
+//       success: false,
+//       message: "Booking not found",
+//     });
+//   }
+
+//   // ⚠️ Prevent duplicate payment
+//   const existingPayment = await Payment.findOne({
+//     transactionId: razorpay_payment_id,
+//   });
+
+//   if (existingPayment) {
+//     return res.status(400).json({
+//       success: false,
+//       message: "Payment already recorded",
+//     });
+//   }
+
+//   // 🔥 SAVE PAYMENT (MAIN PART)
+//   await Payment.create({
+//     booking: bookingId,
+//     transactionId: razorpay_payment_id,
+//     amount: booking.totalAmount, // or amount
+//     status: "success",
+//   });
+
+//   // ❌ DO NOT manually update booking here
+//   // 👉 Let payment model middleware handle it
+
+//   return res.status(200).json({
+//     success: true,
+//     message: "Payment verified & stored successfully ✅",
+//   });
+// // });
+
 export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
   const {
     razorpay_order_id,
     razorpay_payment_id,
     razorpay_signature,
     bookingId,
+    amount, // ✅ MUST RECEIVE FROM FRONTEND
   } = req.body;
 
+  // 🔐 Verify signature
   const generated_signature = crypto
     .createHmac("sha256", process.env.RAZORPAY_SECRET)
     .update(razorpay_order_id + "|" + razorpay_payment_id)
@@ -704,9 +814,9 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
     });
   }
 
-  // ✅ Update booking after verification
+  // ✅ Check booking exists
   const booking = await Booking.findById(bookingId);
-
+  console.log("booking:-", booking);
   if (!booking) {
     return res.status(404).json({
       success: false,
@@ -714,16 +824,30 @@ export const verifyRazorpayPayment = asyncHandler(async (req, res) => {
     });
   }
 
-  booking.paymentStatus = "paid";
-  booking.paymentId = razorpay_payment_id;
-  booking.status = "confirmed";
-  booking.paymentDate = new Date();
+  // ⚠️ Prevent duplicate payment
+  const existingPayment = await Payment.findOne({
+    transactionId: razorpay_payment_id,
+  });
 
-  await booking.save();
+  if (existingPayment) {
+    return res.status(400).json({
+      success: false,
+      message: "Payment already recorded",
+    });
+  }
+
+  // 🔥 SAVE PAYMENT (FIXED)
+  const payment = await Payment.create({
+    booking: bookingId,
+    transactionId: razorpay_payment_id,
+    amount: amount || booking.totalAmount, // ✅ FIX
+    status: "success",
+  });
+
+  console.log("✅ PAYMENT SAVED:", payment); // ✅ DEBUG
 
   return res.status(200).json({
     success: true,
-    message: "Payment verified & booking confirmed ✅",
-    bookingId: booking._id,
+    message: "Payment verified & stored successfully ✅",
   });
 });

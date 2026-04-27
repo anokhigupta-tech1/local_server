@@ -27,5 +27,5 @@ router.put("/bookings/:id/payment", protect, updatePaymentStatus);
 router.get("/admin/bookings", protect, getAllBookings);
 router.put("/admin/bookings/:id/status", protect, updateBookingStatus);
 router.post("/verify-payment", protect, verifyRazorpayPayment);
-
+router.patch("/bookings/:id/cancel", cancelBooking);
 export const bookingRouter = router;
